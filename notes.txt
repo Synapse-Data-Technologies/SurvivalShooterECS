@@ -1,0 +1,5 @@
+in game deadzone controller tuning
+use the ps5 controller triggerd feel for overheated weapons and other weapon effects
+
+We detected a change in the Auto Graphics API default setting compared to the previous Unity version. 
+To change to the new default setting, go to Player Settings and re-enable 'Auto Graphics API'
