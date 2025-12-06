@@ -1,31 +1,77 @@
-﻿using Unity.Entities;
+﻿using Unity.Collections;
+using Unity.Entities;
 using UnityEngine;
 
-public partial class EnemyDeathSystem : SystemBase
+/// <summary>
+/// Modern ISystem implementation for enemy death handling.
+/// Processes dead enemies by playing death animations, sounds, and updating score.
+/// </summary>
+public partial struct EnemyDeathSystem : ISystem
 {
     private int score;
-
     private static readonly int DeadHash = Animator.StringToHash("Dead");
 
-    protected override void OnUpdate()
+    public void OnCreate(ref SystemState state)
+    {
+        // Only run when dead enemies exist
+        state.RequireForUpdate<DeadData>();
+    }
+
+    public void OnUpdate(ref SystemState state)
     {
         var gameUi = SurvivalShooterBootstrap.Settings.GameUi;
         var scorePerDeath = SurvivalShooterBootstrap.Settings.ScorePerDeath;
 
-        Entities.WithStructuralChanges().WithAll<EnemyData, DeadData>().ForEach(
-            (Entity entity, CapsuleCollider collider, Animator animator, AudioSource audio) =>
+        // Query for all dead enemies
+        var deadEnemyQuery = SystemAPI.QueryBuilder()
+            .WithAll<EnemyData, DeadData>()
+            .Build();
+
+        var deadEnemies = deadEnemyQuery.ToEntityArray(state.WorldUpdateAllocator);
+
+        foreach (var entity in deadEnemies)
+        {
+            // Null safety checks for managed components
+            if (!state.EntityManager.HasComponent<CapsuleCollider>(entity) ||
+                !state.EntityManager.HasComponent<Animator>(entity) ||
+                !state.EntityManager.HasComponent<AudioSource>(entity))
             {
-                collider.isTrigger = true;
+                Debug.LogWarning($"[EnemyDeathSystem] Dead enemy {entity} missing required components");
+                continue;
+            }
 
-                animator.SetTrigger(DeadHash);
+            var collider = state.EntityManager.GetComponentObject<CapsuleCollider>(entity);
+            var animator = state.EntityManager.GetComponentObject<Animator>(entity);
+            var audio = state.EntityManager.GetComponentObject<AudioSource>(entity);
 
-                audio.clip = SurvivalShooterBootstrap.Settings.EnemyDeathClip;
-                audio.Play();
+            if (collider == null || animator == null || audio == null)
+            {
+                Debug.LogWarning($"[EnemyDeathSystem] Null managed components on dead enemy {entity}");
+                continue;
+            }
 
-                EntityManager.DestroyEntity(collider.gameObject.GetComponent<EnemyObject>().Entity);
+            // Handle death effects
+            collider.isTrigger = true;
+            animator.SetTrigger(DeadHash);
+            audio.clip = SurvivalShooterBootstrap.Settings.EnemyDeathClip;
+            audio.Play();
 
-                score += scorePerDeath;
-                gameUi.OnEnemyKilled(score);
-            }).Run();
+            // Get EnemyObject and destroy entity
+            var enemyObject = collider.gameObject.GetComponent<EnemyObject>();
+            if (enemyObject != null)
+            {
+                state.EntityManager.DestroyEntity(enemyObject.Entity);
+            }
+            else
+            {
+                Debug.LogWarning($"[EnemyDeathSystem] No EnemyObject found on dead enemy {entity}");
+                // Fallback: destroy the entity directly
+                state.EntityManager.DestroyEntity(entity);
+            }
+
+            // Update score
+            score += scorePerDeath;
+            gameUi.OnEnemyKilled(score);
+        }
     }
 }

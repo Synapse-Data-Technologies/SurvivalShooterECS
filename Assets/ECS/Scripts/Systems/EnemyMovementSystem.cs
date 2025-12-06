@@ -1,4 +1,5 @@
-﻿using Unity.Entities;
+﻿using Unity.Collections;
+using Unity.Entities;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -10,13 +11,14 @@ public partial struct EnemyMovementSystem : ISystem
 {
     public void OnCreate(ref SystemState state)
     {
+        Debug.Log("[EnemyMovementSystem] OnCreate called - system is being created!");
         // Only run when enemies exist
         state.RequireForUpdate<EnemyData>();
     }
 
     public void OnUpdate(ref SystemState state)
     {
-        Debug.Log("[EnemyMovementSystem] OnUpdate called");
+        Debug.Log("[EnemyMovementSystem] OnUpdate called!");
         
         // Find player and check if alive
         var playerQuery = SystemAPI.QueryBuilder()
@@ -26,16 +28,14 @@ public partial struct EnemyMovementSystem : ISystem
         if (playerQuery.IsEmpty)
         {
             Debug.LogWarning("[EnemyMovementSystem] Player query is empty");
-            // No player exists, skip this frame
             return;
         }
-        
-        Debug.Log("[EnemyMovementSystem] Player found");
 
-        // Get player position and health
         var playerEntities = playerQuery.ToEntityArray(state.WorldUpdateAllocator);
         if (playerEntities.Length == 0)
+        {
             return;
+        }
 
         var playerEntity = playerEntities[0];
         var playerHealth = state.EntityManager.GetComponentData<HealthData>(playerEntity);
@@ -57,7 +57,7 @@ public partial struct EnemyMovementSystem : ISystem
         var playerPosition = playerTransform.position;
         var playerAlive = playerHealth.Value > 0;
 
-        // Query for all living enemies (with EnemyData, HealthData, without DeadData)
+        // Query for all living enemies
         var enemyQuery = SystemAPI.QueryBuilder()
             .WithAll<EnemyData, HealthData>()
             .WithNone<DeadData>()
@@ -96,7 +96,6 @@ public partial struct EnemyMovementSystem : ISystem
             else
             {
                 Debug.Log($"[EnemyMovementSystem] Disabling agent for enemy {entity} (enemyHP={enemyHealth.Value}, playerAlive={playerAlive})");
-                // Stop moving if player or enemy is dead
                 agent.enabled = false;
             }
         }

@@ -364,37 +364,359 @@ public partial struct EnemyMovementSystem : ISystem
 
 The current EnemyDeathSystem uses `WithStructuralChanges()` and `ForEach`, which are deprecated. Consider upgrading to ISystem pattern similar to EnemyMovementSystem.
 
-## Future Modular AI Plugin Architecture
+## Modular AI Plugin Architecture
+
+### Overview
+
+The enemy AI system is designed with modularity in mind, separating movement execution from AI decision-making. This architecture allows developers to create custom AI behaviors without modifying core systems.
+
+### Architecture Pattern
+
+```
+┌─────────────────────────────────────────┐
+│  AI Decision System (Plugin)            │
+│  - Analyzes game state                   │
+│  - Makes behavioral decisions            │
+│  - Sets target positions/actions         │
+└─────────────────┬───────────────────────┘
+                  │ (writes to)
+                  ▼
+┌─────────────────────────────────────────┐
+│  EnemyAIBehavior Component               │
+│  - Stores current behavior state         │
+│  - Holds target position/entity          │
+│  - Contains behavior parameters          │
+└─────────────────┬───────────────────────┘
+                  │ (read by)
+                  ▼
+┌─────────────────────────────────────────┐
+│  EnemyMovementSystem (Core)             │
+│  - Reads target from behavior component │
+│  - Executes movement via NavMeshAgent   │
+│  - Handles pathfinding and obstacles    │
+└─────────────────────────────────────────┘
+```
 
 ### Extension Points
 
-The current implementation provides these extension points for future AI plugins:
+#### 1. AI Behavior Component
 
-1. **AI Decision Component** - Add `EnemyAIBehavior` component to control behavior type
-2. **AI Decision System** - New system that sets target positions based on behavior
-3. **Movement System** - Reads target position and executes movement (already separated)
-
-### Example Future Plugin
+The `EnemyAIBehavior` component serves as the interface between decision systems and movement execution:
 
 ```csharp
-// Future: AI Decision System (not implemented yet)
-public partial struct EnemyAIDecisionSystem : ISystem
+public struct EnemyAIBehavior : IComponentData
 {
-    public void OnUpdate(ref SystemState state)
+    public AIBehaviorType BehaviorType;     // Chase, Patrol, Flee, etc.
+    public float3 TargetPosition;           // World position target
+    public Entity TargetEntity;            // Entity to follow
+    public float BehaviorParameter1;       // Speed multiplier, aggression, etc.
+    public float BehaviorParameter2;       // Behavior-specific parameters
+    public float StateTimer;               // Internal timing
+    public bool IsActive;                  // Whether behavior is active
+}
+
+public enum AIBehaviorType : byte
+{
+    Chase = 0,      // Default: chase player
+    Patrol = 1,     // Patrol waypoints
+    Flee = 2,       // Run from player
+    Guard = 3,      // Guard area
+    Wander = 4,     // Random movement
+    Custom = 255    // Plugin-defined
+}
+```
+
+#### 2. AI Decision System Interface
+
+Custom AI behaviors implement the `IAIDecisionSystem` interface:
+
+```csharp
+public interface IAIDecisionSystem
+{
+    AIBehaviorType HandledBehaviorType { get; }
+    int Priority { get; }
+    void UpdateDecisions(ref SystemState state);
+    void OnBehaviorActivated(ref SystemState state, Entity entity);
+    void OnBehaviorDeactivated(ref SystemState state, Entity entity);
+}
+```
+
+#### 3. System Registry
+
+The `AISystemRegistry` manages which systems handle which behavior types:
+
+```csharp
+public static class AISystemRegistry
+{
+    public static void RegisterDecisionSystem(IAIDecisionSystem system);
+    public static IAIDecisionSystem GetPrimarySystem(AIBehaviorType behaviorType);
+    public static List<IAIDecisionSystem> GetAllSystems(AIBehaviorType behaviorType);
+}
+```
+
+### Creating Custom AI Behaviors
+
+#### Step 1: Define Behavior Data (Optional)
+
+```csharp
+public struct PatrolBehaviorData : IComponentData
+{
+    public Entity WaypointEntity1;
+    public Entity WaypointEntity2;
+    public Entity WaypointEntity3;
+    public int CurrentWaypointIndex;
+    public float PatrolSpeed;
+    public float WaitTimeAtWaypoint;
+}
+```
+
+#### Step 2: Implement Decision System
+
+```csharp
+[UpdateInGroup(typeof(SimulationSystemGroup))]
+[UpdateBefore(typeof(EnemyMovementSystem))]
+public partial struct PatrolAISystem : ISystem, IAIDecisionSystem
+{
+    public AIBehaviorType HandledBehaviorType => AIBehaviorType.Patrol;
+    public int Priority => 100;
+
+    public void OnCreate(ref SystemState state)
     {
-        // Read AI behavior component
-        // Set target position based on behavior type
-        // Movement system reads target position
+        AISystemRegistry.RegisterDecisionSystem(this);
+        state.RequireForUpdate<PatrolBehaviorData>();
+    }
+
+    public void UpdateDecisions(ref SystemState state)
+    {
+        foreach (var (behavior, patrolData, entity) in 
+                 SystemAPI.Query<RefRW<EnemyAIBehavior>, RefRW<PatrolBehaviorData>>()
+                          .WithEntityAccess())
+        {
+            if (behavior.ValueRO.BehaviorType != AIBehaviorType.Patrol || 
+                !behavior.ValueRO.IsActive)
+                continue;
+
+            UpdatePatrolLogic(ref behavior.ValueRW, ref patrolData.ValueRW);
+        }
+    }
+
+    // Implementation details...
+}
+```
+
+#### Step 3: Create Authoring Component
+
+```csharp
+public class PatrolBehaviorAuthoring : MonoBehaviour
+{
+    public Transform[] waypoints;
+    public float patrolSpeed = 3.5f;
+    public float waitTime = 2.0f;
+
+    public class Baker : Baker<PatrolBehaviorAuthoring>
+    {
+        public override void Bake(PatrolBehaviorAuthoring authoring)
+        {
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            
+            AddComponent(entity, new EnemyAIBehavior
+            {
+                BehaviorType = AIBehaviorType.Patrol,
+                BehaviorParameter1 = authoring.patrolSpeed,
+                BehaviorParameter2 = authoring.waitTime,
+                IsActive = true
+            });
+
+            AddComponent(entity, new PatrolBehaviorData
+            {
+                PatrolSpeed = authoring.patrolSpeed,
+                WaitTimeAtWaypoint = authoring.waitTime
+            });
+        }
     }
 }
 ```
 
+### Plugin Architecture
+
+#### Plugin Structure
+
+```
+MyAIPlugin/
+├── Components/
+│   ├── MyBehaviorData.cs          # Custom behavior data
+│   └── MyBehaviorSettings.cs      # Configuration settings
+├── Systems/
+│   ├── MyAIDecisionSystem.cs      # Main decision logic
+│   └── MyBehaviorInitSystem.cs    # Initialization logic
+├── Authoring/
+│   └── MyBehaviorAuthoring.cs     # GameObject authoring component
+└── MyAIPlugin.cs                  # Plugin entry point
+```
+
+#### Plugin Entry Point
+
+```csharp
+public static class MyAIPlugin
+{
+    public static void Initialize()
+    {
+        RegisterCustomBehaviorType();
+        Debug.Log("[MyAIPlugin] Initialized successfully");
+    }
+}
+```
+
+### Integration with Core Systems
+
+#### Modified EnemyMovementSystem
+
+The movement system reads from AI behavior components instead of hardcoded player targeting:
+
+```csharp
+// In EnemyMovementSystem.OnUpdate()
+foreach (var (behavior, entity) in 
+         SystemAPI.Query<RefRO<EnemyAIBehavior>>()
+                  .WithEntityAccess()
+                  .WithAll<EnemyData>()
+                  .WithNone<DeadData>())
+{
+    if (!behavior.ValueRO.IsActive) continue;
+
+    var agent = state.EntityManager.GetComponentObject<NavMeshAgent>(entity);
+    if (agent == null) continue;
+
+    // Use target from AI behavior
+    if (behavior.ValueRO.TargetEntity != Entity.Null)
+    {
+        // Follow target entity
+        var targetTransform = state.EntityManager.GetComponentObject<Transform>(behavior.ValueRO.TargetEntity);
+        if (targetTransform != null)
+            agent.SetDestination(targetTransform.position);
+    }
+    else
+    {
+        // Move to target position
+        agent.SetDestination(behavior.ValueRO.TargetPosition);
+    }
+}
+```
+
+#### Behavior Switching System
+
+```csharp
+public partial struct AIBehaviorSwitchSystem : ISystem
+{
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var (behavior, health, entity) in 
+                 SystemAPI.Query<RefRW<EnemyAIBehavior>, RefRO<HealthData>>()
+                          .WithEntityAccess())
+        {
+            // Switch to flee if health is low
+            if (health.ValueRO.Value < 20 && behavior.ValueRO.BehaviorType != AIBehaviorType.Flee)
+            {
+                SwitchBehavior(ref state, entity, AIBehaviorType.Flee);
+            }
+            // Switch back to chase if health is restored
+            else if (health.ValueRO.Value >= 50 && behavior.ValueRO.BehaviorType == AIBehaviorType.Flee)
+            {
+                SwitchBehavior(ref state, entity, AIBehaviorType.Chase);
+            }
+        }
+    }
+}
+```
+
+### Best Practices
+
+#### Performance Considerations
+- **Minimize Entity Queries**: Cache queries in OnCreate when possible
+- **Use Burst Compilation**: Mark systems with `[BurstCompile]` when they don't access managed components
+- **Batch Operations**: Process multiple entities in single loops
+- **Avoid Frequent Behavior Switches**: Add hysteresis to prevent rapid switching
+
+#### Memory Management
+- **Use WorldUpdateAllocator**: For temporary allocations within system updates
+- **Avoid Managed References**: Prefer entity references over GameObject references
+- **Clean Up Resources**: Implement proper cleanup in OnBehaviorDeactivated
+
+#### Debugging
+- **Add Debug Logging**: Use conditional compilation for debug output
+- **Visual Debugging**: Use Unity's Debug.DrawLine for visualizing AI decisions
+- **Profiler Integration**: Add profiler markers for performance analysis
+
 ### Migration Path
 
 1. **Phase 1** (Current): Upgrade EnemyMovementSystem to ISystem
-2. **Phase 2** (Future): Add EnemyAIBehavior component
-3. **Phase 3** (Future): Create AI Decision System
-4. **Phase 4** (Future): Implement plugin loading system
+2. **Phase 2** (Next): Add EnemyAIBehavior component to existing enemies
+3. **Phase 3** (Future): Implement default behavior systems (Chase, Patrol, Flee)
+4. **Phase 4** (Future): Create plugin loading infrastructure
+5. **Phase 5** (Advanced): Add behavior trees, group AI, debugging tools
+
+### Example Behaviors
+
+#### Chase Behavior (Default)
+```csharp
+public partial struct ChaseAISystem : ISystem, IAIDecisionSystem
+{
+    public AIBehaviorType HandledBehaviorType => AIBehaviorType.Chase;
+    
+    public void UpdateDecisions(ref SystemState state)
+    {
+        // Find player and set as target for all chase-behavior enemies
+        var playerQuery = SystemAPI.QueryBuilder().WithAll<PlayerData>().Build();
+        if (playerQuery.IsEmpty) return;
+        
+        var playerEntity = playerQuery.GetSingletonEntity();
+        
+        foreach (var (behavior, entity) in 
+                 SystemAPI.Query<RefRW<EnemyAIBehavior>>()
+                          .WithEntityAccess())
+        {
+            if (behavior.ValueRO.BehaviorType == AIBehaviorType.Chase)
+            {
+                behavior.ValueRW.TargetEntity = playerEntity;
+            }
+        }
+    }
+}
+```
+
+#### Flee Behavior
+```csharp
+public partial struct FleeAISystem : ISystem, IAIDecisionSystem
+{
+    public AIBehaviorType HandledBehaviorType => AIBehaviorType.Flee;
+    
+    public void UpdateDecisions(ref SystemState state)
+    {
+        // Calculate flee positions away from player
+        var playerQuery = SystemAPI.QueryBuilder().WithAll<PlayerData, Transform>().Build();
+        if (playerQuery.IsEmpty) return;
+        
+        var playerTransform = playerQuery.GetSingleton<Transform>();
+        var playerPos = playerTransform.position;
+        
+        foreach (var (behavior, transform, entity) in 
+                 SystemAPI.Query<RefRW<EnemyAIBehavior>, RefRO<Transform>>()
+                          .WithEntityAccess())
+        {
+            if (behavior.ValueRO.BehaviorType == AIBehaviorType.Flee)
+            {
+                var enemyPos = transform.ValueRO.position;
+                var fleeDirection = (enemyPos - playerPos).normalized;
+                var fleeTarget = enemyPos + fleeDirection * 10f; // Flee 10 units away
+                
+                behavior.ValueRW.TargetPosition = fleeTarget;
+                behavior.ValueRW.TargetEntity = Entity.Null;
+            }
+        }
+    }
+}
+```
+
+This modular architecture provides a solid foundation for extending enemy AI behaviors while maintaining performance and code organization. The separation of concerns allows for easy testing, debugging, and customization without affecting core movement systems.
 
 ## Integration Points
 

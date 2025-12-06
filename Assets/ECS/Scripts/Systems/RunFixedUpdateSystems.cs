@@ -7,16 +7,18 @@ public class RunFixedUpdateSystems : MonoBehaviour
     private PlayerMovementSystem playerMovementSystem;
     private PlayerTurningSystem playerTurningSystem;
     private PlayerAnimationSystem playerAnimationSystem;
-    // Note: CameraFollowSystem is now an ISystem and runs automatically in the default world
+    // Note: EnemyMovementSystem and CameraFollowSystem are now ISystem and run automatically in the default world
 
     private void Start()
     {
+        Debug.Log("[RunFixedUpdateSystems] Start called!");
         var world = World.DefaultGameObjectInjectionWorld;
         if (world == null)
         {
             Debug.LogError("[RunFixedUpdateSystems] Default world not found!");
             return;
         }
+        Debug.Log("[RunFixedUpdateSystems] Default world found!");
 
         try
         {
@@ -53,6 +55,9 @@ public class RunFixedUpdateSystems : MonoBehaviour
         {
             Debug.LogWarning($"[RunFixedUpdateSystems] Failed to create PlayerAnimationSystem: {e.Message}");
         }
+
+        // EnemyMovementSystem is now an ISystem and runs automatically in the default world
+        Debug.Log("[RunFixedUpdateSystems] EnemyMovementSystem will run automatically as ISystem");
     }
 
     private void FixedUpdate()
@@ -68,7 +73,7 @@ public class RunFixedUpdateSystems : MonoBehaviour
 
         if (playerAnimationSystem != null)
             playerAnimationSystem.Update();
-        
-        // CameraFollowSystem runs automatically as an ISystem in the default world
+
+        // EnemyMovementSystem and CameraFollowSystem run automatically as ISystem in the default world
     }
 }

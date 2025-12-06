@@ -80,13 +80,23 @@
   - Document performance metrics
   - _Requirements: 5.4_
 
-- [ ] 6. Evaluate EnemyDeathSystem for upgrade
+- [x] 6. Evaluate EnemyDeathSystem for upgrade
+
+
+
+
+
   - Review EnemyDeathSystem implementation
   - Determine if ISystem upgrade is needed
   - Document findings and recommendations
   - _Requirements: 3.6_
 
-- [ ] 7. Document modular AI extension points
+- [x] 7. Document modular AI extension points
+
+
+
+
+
   - Document how to add AI behavior components
   - Document how to create AI decision systems
   - Provide example plugin architecture
