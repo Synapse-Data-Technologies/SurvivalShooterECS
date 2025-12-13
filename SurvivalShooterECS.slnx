@@ -1,6 +1,6 @@
 ﻿<Solution>
-  <Project Path="ALINE.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="ALINE.csproj" />
   <Project Path="ALINEEditor.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="ALINEPackageToolsEditor.csproj" />

@@ -1,0 +1,186 @@
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// <summary>
+/// ECS System for sphere enemy debug UI
+/// Creates and manages floating debug UI for sphere enemies
+/// </summary>
+public partial struct SphereEnemyDebugUISystem : ISystem
+{
+    private EntityQuery sphereEnemyQuery;
+
+    public void OnCreate(ref SystemState state)
+    {
+        // Only run when sphere enemies with debug data exist
+        sphereEnemyQuery = SystemAPI.QueryBuilder()
+            .WithAll<SphereEnemyData, SphereEnemyDebugData, Transform>()
+            .WithNone<DeadData>()
+            .Build();
+        
+        state.RequireForUpdate(sphereEnemyQuery);
+    }
+
+    public void OnUpdate(ref SystemState state)
+    {
+        var mainCamera = Camera.main;
+        if (mainCamera == null)
+            return;
+
+        var sphereEnemyEntities = sphereEnemyQuery.ToEntityArray(state.WorldUpdateAllocator);
+
+        // Process each sphere enemy
+        foreach (var entity in sphereEnemyEntities)
+        {
+            var sphereData = state.EntityManager.GetComponentData<SphereEnemyData>(entity);
+            var debugData = state.EntityManager.GetComponentData<SphereEnemyDebugData>(entity);
+            
+            if (!debugData.ShowDebugUI)
+                continue;
+
+            // Get the SphereEnemyObject for UI management
+            if (!state.EntityManager.HasComponent<SphereEnemyObject>(entity))
+                continue;
+
+            var sphereEnemyObject = state.EntityManager.GetComponentObject<SphereEnemyObject>(entity);
+            if (sphereEnemyObject == null)
+                continue;
+
+            var transform = state.EntityManager.GetComponentObject<Transform>(entity);
+            if (transform == null)
+                continue;
+
+            // Update or create debug UI
+            UpdateDebugUI(sphereEnemyObject, sphereData, debugData, transform, mainCamera);
+        }
+    }
+
+    private static void UpdateDebugUI(SphereEnemyObject sphereEnemyObject, SphereEnemyData sphereData, 
+        SphereEnemyDebugData debugData, Transform enemyTransform, Camera mainCamera)
+    {
+        // Find or create debug UI canvas
+        var debugCanvas = enemyTransform.Find("SphereEnemyDebugCanvas");
+        if (debugCanvas == null)
+        {
+            debugCanvas = CreateDebugUI(enemyTransform, debugData.UIOffset);
+        }
+
+        if (debugCanvas == null)
+            return;
+
+        // Update canvas position and rotation
+        var worldPosition = enemyTransform.position + (Vector3)debugData.UIOffset;
+        debugCanvas.position = worldPosition;
+        debugCanvas.LookAt(mainCamera.transform);
+        debugCanvas.Rotate(0, 180, 0); // Flip to face camera correctly
+
+        // Update text content
+        UpdateDebugText(debugCanvas, sphereEnemyObject.aiVersion, sphereData.CurrentMode);
+    }
+
+    private static Transform CreateDebugUI(Transform parent, float3 uiOffset)
+    {
+        // Create a world space canvas
+        var canvasGO = new GameObject("SphereEnemyDebugCanvas");
+        canvasGO.transform.SetParent(parent);
+        
+        var canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = Camera.main;
+        
+        // Set canvas size and scale
+        var canvasRect = canvas.GetComponent<RectTransform>();
+        canvasRect.sizeDelta = new Vector2(200, 100);
+        canvasRect.localScale = Vector3.one * 0.01f; // Scale down for world space
+        
+        // Create background panel
+        var panelGO = new GameObject("DebugPanel");
+        panelGO.transform.SetParent(canvasGO.transform, false);
+        
+        var panelImage = panelGO.AddComponent<Image>();
+        panelImage.color = new Color(0, 0, 0, 0.7f); // Semi-transparent black
+        
+        var panelRect = panelGO.GetComponent<RectTransform>();
+        panelRect.anchorMin = Vector2.zero;
+        panelRect.anchorMax = Vector2.one;
+        panelRect.offsetMin = Vector2.zero;
+        panelRect.offsetMax = Vector2.zero;
+        
+        // Create version text
+        var versionGO = new GameObject("VersionText");
+        versionGO.transform.SetParent(panelGO.transform, false);
+        
+        var versionText = versionGO.AddComponent<Text>();
+        versionText.text = "AI Version: 1.0";
+        versionText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        versionText.fontSize = 14;
+        versionText.color = Color.white;
+        versionText.alignment = TextAnchor.MiddleCenter;
+        
+        var versionRect = versionGO.GetComponent<RectTransform>();
+        versionRect.anchorMin = new Vector2(0, 0.5f);
+        versionRect.anchorMax = new Vector2(1, 1);
+        versionRect.offsetMin = new Vector2(5, 0);
+        versionRect.offsetMax = new Vector2(-5, -5);
+        
+        // Create mode text
+        var modeGO = new GameObject("ModeText");
+        modeGO.transform.SetParent(panelGO.transform, false);
+        
+        var modeText = modeGO.AddComponent<Text>();
+        modeText.text = "Mode: Patrol";
+        modeText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        modeText.fontSize = 14;
+        modeText.color = Color.yellow;
+        modeText.alignment = TextAnchor.MiddleCenter;
+        
+        var modeRect = modeGO.GetComponent<RectTransform>();
+        modeRect.anchorMin = new Vector2(0, 0);
+        modeRect.anchorMax = new Vector2(1, 0.5f);
+        modeRect.offsetMin = new Vector2(5, 5);
+        modeRect.offsetMax = new Vector2(-5, 0);
+        
+        return canvasGO.transform;
+    }
+
+    private static void UpdateDebugText(Transform debugCanvas, string aiVersion, SphereEnemyData.AIMode currentMode)
+    {
+        var versionText = debugCanvas.Find("DebugPanel/VersionText")?.GetComponent<Text>();
+        var modeText = debugCanvas.Find("DebugPanel/ModeText")?.GetComponent<Text>();
+        
+        if (versionText != null)
+        {
+            versionText.text = $"AI Version: {aiVersion}";
+        }
+        
+        if (modeText != null)
+        {
+            modeText.text = $"Mode: {currentMode}";
+            
+            // Change color based on mode
+            switch (currentMode)
+            {
+                case SphereEnemyData.AIMode.Idle:
+                    modeText.color = Color.gray;
+                    break;
+                case SphereEnemyData.AIMode.Patrol:
+                    modeText.color = Color.green;
+                    break;
+                case SphereEnemyData.AIMode.Chase:
+                    modeText.color = Color.orange;
+                    break;
+                case SphereEnemyData.AIMode.Attack:
+                    modeText.color = Color.red;
+                    break;
+                case SphereEnemyData.AIMode.Retreat:
+                    modeText.color = Color.cyan;
+                    break;
+                default:
+                    modeText.color = Color.white;
+                    break;
+            }
+        }
+    }
+}

@@ -19,15 +19,41 @@ public class EnemyAttacker : MonoBehaviour
     {
         if (other.gameObject == player)
         {
-            enemyAttackEntity = entityManager.CreateEntity(enemyAttackArchetype);
-            entityManager.SetComponentData(enemyAttackEntity, new EnemyAttackData
+            // Check for EnemyObject first
+            var enemyObject = GetComponent<EnemyObject>();
+            if (enemyObject != null)
             {
-                Timer = 0f,
-                Frequency = SurvivalShooterBootstrap.Settings.TimeBetweenEnemyAttacks,
-                Damage = SurvivalShooterBootstrap.Settings.EnemyAttackDamage,
-                Source = GetComponent<EnemyObject>().Entity,
-                Target = player.GetComponent<PlayerObject>().Entity
-            });
+                enemyAttackEntity = entityManager.CreateEntity(enemyAttackArchetype);
+                entityManager.SetComponentData(enemyAttackEntity, new EnemyAttackData
+                {
+                    Timer = 0f,
+                    Frequency = SurvivalShooterBootstrap.Settings.TimeBetweenEnemyAttacks,
+                    Damage = SurvivalShooterBootstrap.Settings.EnemyAttackDamage,
+                    Source = enemyObject.Entity,
+                    Target = player.GetComponent<PlayerObject>().Entity
+                });
+            }
+            else
+            {
+                // Check for SphereEnemyObject as fallback
+                var sphereEnemyObject = GetComponent<SphereEnemyObject>();
+                if (sphereEnemyObject != null)
+                {
+                    enemyAttackEntity = entityManager.CreateEntity(enemyAttackArchetype);
+                    entityManager.SetComponentData(enemyAttackEntity, new EnemyAttackData
+                    {
+                        Timer = 0f,
+                        Frequency = SurvivalShooterBootstrap.Settings.TimeBetweenEnemyAttacks,
+                        Damage = SurvivalShooterBootstrap.Settings.EnemyAttackDamage,
+                        Source = sphereEnemyObject.Entity,
+                        Target = player.GetComponent<PlayerObject>().Entity
+                    });
+                }
+                else
+                {
+                    Debug.LogWarning($"[EnemyAttacker] No EnemyObject or SphereEnemyObject found on {gameObject.name}");
+                }
+            }
         }
     }
 
